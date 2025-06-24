@@ -1,0 +1,15 @@
+
+```{r setup, message=FALSE}
+library(targets)
+tar_config_set(script = "_targets.R")
+
+if (!tar_exist_objects()) {
+  message("Targets not built – running tar_make() now (≈ 3-5 min)…")
+  tar_make()
+}
+
+# pull objects
+eval_tbl   <- tar_read(eval_tbl)
+glm_map    <- tar_read(pred_map_glm)
+rf_map     <- tar_read(pred_map_rf)
+```
