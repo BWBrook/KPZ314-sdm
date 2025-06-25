@@ -3,17 +3,17 @@
 # Each function is atomic and explicitly imports what it needs.
 
 # ── imports ────────────────────────────────────────────────────────────────────
-import::from("dplyr",     tibble, select, mutate, rename, filter, bind_rows,
-                        group_by, ungroup, summarise, distinct, anti_join)
-import::from("readr",     read_csv)
-import::from("sf",        st_as_sf, st_nearest_feature, st_coordinates,
-                        st_set_geometry, st_drop_geometry, st_intersects,
-                        st_geometry, st_crs)
-import::from("spatialsample", spatial_clustering_cv)
-import::from("purrr",     map_dfr)
-import::from("galah",     galah_call, galah_identify, galah_filter,
-                        galah_select, atlas_occurrences)
-import::from("stats",     setNames)
+import::from("dplyr",         tibble, select, mutate, rename, filter, bind_rows,
+                              group_by, ungroup, summarise, distinct, anti_join,
+                              left_join)
+import::from("readr",         read_csv)
+import::from("sf",            st_as_sf, st_nearest_feature, st_coordinates,
+                              st_set_geometry, st_drop_geometry, st_intersects,
+                              st_geometry, st_crs)
+import::from("spatialsample", spatial_clustering_cv, assessment)
+import::from("purrr",         map_dfr)
+import::from("galah",         galah_call, galah_identify, galah_filter, 
+                              galah_config, galah_select, atlas_occurrences)
 
 # ── small utilities ────────────────────────────────────────────────────────────
 
@@ -27,7 +27,9 @@ read_grid <- function(path) {
 }
 
 # Pull ALA points for one species, minimally filtered
-get_ala_occurrences <- function(scientific_name, after_year = 2000) {
+get_ala_occurrences <- function(scientific_name, after_year = 1975) {
+  galah_config(atlas="ALA", email="barry.brook@utas.edu.au", 
+               caching=TRUE, verbose=TRUE)
 
   galah_call() |>
     galah_identify(scientific_name) |>
@@ -35,72 +37,133 @@ get_ala_occurrences <- function(scientific_name, after_year = 2000) {
     galah_select(decimalLongitude, decimalLatitude, eventDate) |>
     atlas_occurrences() |>
     rename(lon = decimalLongitude, lat = decimalLatitude) |>
+    filter(lat <= -39.5) |> # Tas only records
     filter(!is.na(lon) & !is.na(lat)) |>
     st_as_sf(coords = c("lon", "lat"), crs = 4326)
+}
+
+surveyed_grid <- function(pres_list, grid_df) {
+  pres_list |>
+    bind_rows() |>
+    distinct(lon, lat) |>
+    inner_join(grid_df, by = c("lon", "lat"))
 }
 
 # Snap every sf point to nearest grid cell, return tibble with lon/lat
 snap_to_grid <- function(occ_sf, grid_df) {
 
-  grid_sf <- st_as_sf(grid_df, coords = c("Lon", "Lat"), crs = 4326)
+  grid_sf <- st_as_sf(grid_df, coords = c("lon", "lat"), crs = 4326)
 
   occ_df <- occ_sf |>
     mutate(idx = st_nearest_feature(geometry, grid_sf)) |>
     mutate(
-      Lon = grid_df$Lon[idx],
-      Lat = grid_df$Lat[idx]) |>
+      lon = grid_df$lon[idx],
+      lat = grid_df$lat[idx]) |>
     st_drop_geometry() |>
-    select(Lon, Lat)
+    select(lon, lat)
 
-  tibble(Lon = occ_df$Lon, Lat = occ_df$Lat)
+  tibble(lon = occ_df$lon, lat = occ_df$lat)
 }
 
-# Generate pseudo-absences for one species
-pseudo_absences <- function(pres_all, target_sp, min_species = 3) {
-
-  pres_target <- pres_all |> filter(species == target_sp)
-
-  pres_all |>
-    filter(species != target_sp) |>
-    anti_join(pres_target, by = c("Lon", "Lat")) |>
-    group_by(Lon, Lat) |>
-    filter(n_distinct(species) >= min_species) |>
-    ungroup() |>
-    distinct(Lon, Lat) |>
+assign_absences <- function(surveyed_grid, pres_df, target_sp) {
+  surveyed_grid |>
+    anti_join(pres_df, by = c("lon", "lat")) |>
     mutate(species = target_sp, pa = 0)
 }
 
 # Build presence-pseudoabsence dataframe for the four species
-build_pa_dataset <- function(species_tbl, grid_df, min_species = 3) {
+build_pa_dataset <- function(species_tbl, grid_df, min_species = 2) {
 
-  message("Downloading ALA data (cached by galah)…")
-
-  occ_list <- map_dfr(species_tbl$scientific, function(sp) {
-    sf <- get_ala_occurrences(sp)
-    snap_to_grid(sf, grid_df) |>
+  # 1. download + snap to grid for each species
+  pres_list <- map(species_tbl$scientific, function(sp) {
+    get_ala_occurrences(sp) |>
+      snap_to_grid(grid_df) |>
       mutate(species = sp, pa = 1)
   })
 
-  # create pseudo-absences species-by-species
-  pa_all <- bind_rows(
-    occ_list,
-    map_dfr(species_tbl$scientific,
-            ~ pseudo_absences(occ_list, .x, min_species))
+  # 2. surveyed grid cells (presence by any target)
+  surveyed <- surveyed_grid(pres_list, grid_df)
+
+  # 3. add explicit 0’s per species
+  pres_abs_list <- map2(pres_list, species_tbl$scientific, ~
+    bind_rows(
+      .x,
+      assign_absences(surveyed, .x, .y)
+    )
   )
 
-  pa_all
+  pa_all <- bind_rows(pres_abs_list)
+
+  # 4. Cull pseudo-absences: keep only cells where ≥ min_species other targets were seen
+  pa_clean <- pa_all |>
+    group_by(lon, lat) |>
+    mutate(n_other_seen = sum(pa == 1 & species != first(species))) |>
+    ungroup() |>
+    filter(pa == 1 | n_other_seen >= min_species) |>
+    select(-n_other_seen)
+
+  # after pa_clean is built, attach predictors
+  pa_final <- pa_clean %>% 
+    select(lon, lat, species, pa) %>% 
+    left_join(grid_df, by = c("lon", "lat"))
+
+  return(pa_final)
 }
 
 # Re-use a preset spatial CV fold structure if present
-load_or_make_folds <- function(pa_df, preset) {
+load_or_make_folds <- function(pa_df,
+                               preset   = "data/spatial_folds.rds",
+                               v        = 30,
+                               seed     = 12345) {
+  if (file.exists(preset)) return(readRDS(preset))
 
-  if (file.exists(preset)) {
-    readRDS(preset)
-  } else {
-    folds <- spatial_clustering_cv(
-      st_as_sf(pa_df, coords = c("Lon", "Lat"), crs = 4326),
-      v = 50)
-    saveRDS(folds, preset)
-    folds
-  }
+  message("→ creating spatial folds (", v, " clusters)…")
+
+  # 1. unique coords
+  pts_unique <- pa_df |>
+    distinct(lon, lat) |>
+    st_as_sf(coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+
+  set.seed(seed)
+  folds_unique <- spatial_clustering_cv(pts_unique, v = v)
+
+  # 2. build lookup: for each fold, pull that holdout set, extract coords & tag
+  fold_lookup <- map_dfr(seq_len(v), function(id) {
+    assessment(folds_unique$splits[[id]]) |>
+      mutate(
+        lon  = st_coordinates(geometry)[,1],
+        lat  = st_coordinates(geometry)[,2],
+        fold = id
+      ) |>
+      st_set_geometry(NULL)
+  })
+
+  saveRDS(fold_lookup, preset)
+  fold_lookup
 }
+
+# Re-use a preset spatial CV fold structure if present
+label_folds <- function(pa_df, fold_lookup,
+                        test_ids = c(2, 6, 10, 14, 18),
+                        digits   = 5) {          # 0.00001° ≈ 1 m
+
+  # force identical rounding
+  pa_key   <- pa_df %>%
+    mutate(lon_r = round(lon, digits),
+           lat_r = round(lat, digits))
+
+  fold_key <- fold_lookup %>%
+    distinct(lon, lat, fold) %>%
+    mutate(lon_r = round(lon, digits),
+           lat_r = round(lat, digits))
+
+  pa_key %>%
+    left_join(fold_key, by = c("lon_r", "lat_r")) %>%
+    select(-lon_r, -lat_r) %>%           # drop helper keys
+    mutate(
+      fold = as.integer(fold),
+      type = ifelse(fold %in% test_ids, "test", "train")
+    )
+}
+
+
