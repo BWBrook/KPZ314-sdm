@@ -1,0 +1,118 @@
+---
+title: "KPZ314 SDM Practical – Data-engineering workflow"
+format: html
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r setup, include=FALSE}
+library(targets)
+tar_config_set(script = "_targets.R")
+
+# auto‑build if the cache is empty
+if (!tar_exist_objects(names = "pa_df")) {
+  message("Building targets (~3‑5 min on fresh clone)…")
+  tar_make()
+}
+
+pa_df        <- tar_read(pa_df)
+grid_df      <- tar_read(grid_df)
+fold_lookup  <- tar_read(folds)
+pa_cv_df     <- tar_read(pa_cv_df)
+```
+
+> **Learning goals for this worksheet**
+
+> LG‑1 Raw → PA dataset pipeline  
+> LG‑2 Spatial cross-validation rationale  
+> LG‑3 Visual QC of sampling bias
+
+## 1  Snapshot of the raw ALA downloads
+
+```{r}
+library(dplyr); library(ggplot2)
+
+pa_df %>%
+  count(species, pa) %>% 
+  tidyr::pivot_wider(names_from = pa,
+                     values_from = n,
+                     names_prefix = "pa_") %>% 
+  knitr::kable()
+```
+
+> **TASK 1.1** What class imbalance (pa_1 vs pa_0) would you flag as *severe?*  
+> Give a numeric rule-of-thumb and justify it.
+
+## 2  Map presences & pseudo-absences
+
+```{r}
+pres_palette <- c("1" = "#D7191C",  "0" = "#2C7BB6")
+
+ggplot(pa_df, aes(lon, lat, colour = factor(pa))) +
+  geom_point(size = 0.8, alpha = 0.6) +
+  coord_equal() +
+  scale_colour_manual(values = pres_palette,
+                      name = "PA flag",
+                      labels = c("0" = "pseudo-absence",
+                                 "1" = "presence")) +
+  theme_minimal() +
+  facet_wrap(~ species, ncol = 2) +
+  labs(title = "ALA records snapped to 0.05° grid")
+```
+
+> **TASK 2.1** Visually, which species appears most clustered?  
+> Explain what sampling process might create that pattern.
+
+## 3  Overlay an environmental predictor
+
+```{r}
+library(scales)
+
+this_pred <- "annprecip"
+
+ggplot(grid_df, aes(lon, lat, fill = .data[[this_pred]])) +
+  geom_tile() +
+  coord_equal() +
+  theme_void() +
+  scale_fill_viridis_c(option = "B", name = this_pred)
+```
+
+> **TASK 3.1** Pick a different predictor and regenerate the map.  
+> Which environmental gradient shows the clearest north–south trend?
+
+## 4  Building spatial CV folds
+
+```{r}
+ggplot(fold_lookup, aes(lon, lat, colour = factor(fold))) +
+  geom_point(size = 1) +
+  coord_equal() +
+  theme_minimal() +
+  scale_colour_viridis_d(name = "Fold") +
+  labs(title = "30 spatially clustered folds")
+```
+
+> **TASK 4.1** Why might random (non-spatial) CV over-estimate model accuracy  
+> when evaluating SDMs?
+
+## 5  Train/test split check
+
+```{r}
+pa_cv_df %>%
+  count(type, species, pa) %>%
+  tidyr::pivot_wider(names_from = pa,
+                     values_from = n,
+                     names_prefix = "pa_") %>%
+  knitr::kable()
+```
+
+> **TASK 5.1** Each species’ test set has ≥ 179 presences.  
+> Explain why that matters for metrics such as ROC-AUC.
+
+## 6  Reflect
+
+1. List two biases inherent in citizen-science data and the pipeline steps that
+   mitigate them.  
+2. Suggest an additional predictor that might improve model performance and
+   justify its inclusion.

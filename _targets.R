@@ -20,13 +20,45 @@ list(
   tar_target(folds, load_or_make_folds(pa_df, here("data", "spatial_folds.rds"))),
   tar_target(pa_cv_df, label_folds(pa_df, folds, test_ids = c(5, 13, 19, 23, 26))),
   tar_target(train_df, pa_cv_df |> filter(type == "train")),
-  tar_target(test_df,  pa_cv_df |> filter(type == "test"))
+  tar_target(test_df,  pa_cv_df |> filter(type == "test")),
 
-  # ── modelling (simple split: fold == "train") ────────────────────────────
-  # tar_target(model_glm, fit_glm_wrapper(train_df)),
-  # tar_target(model_rf , fit_rf_wrapper(train_df)),
+  # 1. species names (character vector)
+  tar_target(
+    species_vec,
+    unique(train_df$species)
+  ),
 
-  # # ── evaluation & mapping ─────────────────────────────────────────────────
+
+
+  # # ── predictions -----------------------------------------------------------
+  # tar_target(
+  #   pred_glm,
+  #   {
+  #     df  <- test_list
+  #     df$.pred <- predict(model_glm, df, type = "response")
+  #     df
+  #   },
+  #   pattern = map(test_list, model_glm)
+  # ),
+
+  # tar_target(
+  #   pred_rf,
+  #   {
+  #     df  <- test_list
+  #     df$.pred <- predict(model_rf, df, type = "response")$predictions[, "1"]
+  #     df
+  #   },
+  #   pattern = map(test_list, model_rf)
+  # )
+
+
+  # tar_target(eval_tbl,
+  #   bind_rows(
+  #     map_dfr(pred_glm, ~ evaluate_model(.x, ".pred", "pa") %>% mutate(model = "GLM")),
+  #     map_dfr(pred_rf,  ~ evaluate_model(.x, ".pred", "pa") %>% mutate(model = "RF"))
+  #   )
+  # )
+  # ── evaluation & mapping ─────────────────────────────────────────────────
   # tar_target(eval_tbl,
   #   bind_rows(
   #     evaluate_model(test_df |>

@@ -23,7 +23,7 @@ required_pkgs <- c(
   # modelling
   "tidymodels", "ranger", "pROC",
   # misc
-  "patchwork"
+  "patchwork", "knitr", "quarto"
 )
 
 # ── 3  install any missing ───────────────────────────────────────────────────────

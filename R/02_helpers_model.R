@@ -33,24 +33,39 @@ normalise_01 <- function(x) (x - min(x)) / (max(x) - min(x))
 
 # ── model wrappers ─────────────────────────────────────────────────────────────
 
+# helper to drop zero-variance columns (except the response)
+drop_constant_cols <- function(df, response = "pa") {
+  keep <- vapply(df, function(x) length(unique(x)) > 1, logical(1))
+  keep[response] <- TRUE
+  df[, keep, drop = FALSE]
+}
+
 fit_glm_wrapper <- function(train_df, formula = pa ~ .) {
 
+  df <- train_df |>
+          select(-fold, -type, -species) |>   # remove species
+          drop_constant_cols()
+
   glm(formula,
-      data   = train_df |> select(-fold, -type),
+      data   = df,
       family = binomial(link = "logit"))
 }
 
 fit_rf_wrapper <- function(train_df,
-                           mtry = floor(sqrt(ncol(train_df) - 3L)),
+                           mtry  = floor(sqrt(ncol(train_df) - 3L)),
                            trees = 1000) {
+
+  df <- train_df |>
+          select(-fold, -type, -species) |>   # remove species
+          drop_constant_cols()
 
   ranger(
     pa ~ .,
-    data   = train_df |> select(-fold, -type),
-    num.trees      = trees,
-    mtry           = mtry,
-    probability    = TRUE,
-    importance     = "impurity"
+    data         = df,
+    num.trees    = trees,
+    mtry         = min(mtry, ncol(df) - 1),   # mtry can't exceed n-predictors
+    probability  = TRUE,
+    importance   = "impurity"
   )
 }
 

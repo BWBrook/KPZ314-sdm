@@ -14,6 +14,7 @@
 
 # Output files from R CMD build
 /*.tar.gz
+/*.zip
 
 # Output files from R CMD check
 /*.Rcheck/
@@ -47,3 +48,24 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# renv
+renv/library/
+renv/staging/
+
+# Quarto / rmarkdown artefacts
+*.html                  # rendered notebooks
+*.knit.md
+data_pipeline_files/        # html asset dir (JS/CSS/img)
+modelling_pipeline_files/ 
+
+# _targets
+# The object store is committed ONCE; ignore future changes
+# Remove the leading "!" below if you decide to ship no cache at all.
+!_targets/              # keep the committed cache
+_targets/**             # but ignore any new/changed files
+
+# Misc
+.DS_Store
+.vscode/
+.idea/
