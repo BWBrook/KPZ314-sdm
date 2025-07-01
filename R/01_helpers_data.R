@@ -166,4 +166,24 @@ label_folds <- function(pa_df, fold_lookup,
     )
 }
 
+#' Harmonise coordinate columns
+#'
+#' Consolidates duplicate \code{lon.x/lat.x} and \code{lon.y/lat.y}
+#' into a single \code{lon}/\code{lat} pair and optionally drops them.
+#'
+#' @param df       Data frame.
+#' @param keep_xy  Logical; keep coordinates if `TRUE`.
+#' @return Tidied data frame.
+clean_xy <- function(df, keep_xy = TRUE) {
+  # drop duplicate lon/lat suffixes created by left_joins
+  if (all(c("lon.x", "lat.x", "lon.y", "lat.y") %in% names(df))) {
+    df <- df %>%
+      dplyr::select(-lon.y, -lat.y) %>%
+      dplyr::rename(lon = lon.x, lat = lat.x)
+  }
 
+  if (!keep_xy) {                        # set FALSE to drop coords entirely
+    df <- dplyr::select(df, -lon, -lat)
+  }
+  df
+}

@@ -21,7 +21,7 @@ required_pkgs <- c(
   # spatial + SDM
   "sf", "terra", "leaflet", "galah",
   # modelling
-  "tidymodels", "ranger", "pROC",
+  "tidymodels", "ranger", "pROC", "usdm", "yardstick",
   # misc
   "patchwork", "knitr", "quarto"
 )
