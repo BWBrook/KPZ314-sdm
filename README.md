@@ -1,6 +1,6 @@
 # KPZ314 SDM Practical
 
-Species‑distribution modelling exercise for *Fauna of Tasmania* (KPZ314, Week 10).
+Species‑distribution modelling exercise for *Fauna of Tasmania* (KPZ314, Week 3).
 Students fit GLM and Random‑Forest models to four mammals using **renv**, **targets**
 and **Quarto**.
 
@@ -14,6 +14,7 @@ data_pipeline.qmd       # Part 1: data wrangling
 modelling_pipeline.qmd  # Part 2: modelling & evaluation
 data/                   # species list + env grid
 _targets/               # pre‑built cache (~3 MB)
+data/                   # species list + env grid
 ```
 
 ## Quick‑start (students)
@@ -21,8 +22,18 @@ _targets/               # pre‑built cache (~3 MB)
 ```bash
 git clone https://github.com/UTasEco/KPZ314-sdm-prac.git
 cd KPZ314-sdm-prac
-Rscript bootstrap_env.R           # installs packages via renv
+```
+Then:
+
+```bash
+Rscript bootstrap_env.R 
 quarto render data_pipeline.qmd   # or click “Render” in RStudio
+```
+OR 
+
+```r
+source("bootstrap_env.R")   # installs all R packages via renv
+quarto::quarto_render("data_pipeline.qmd")
 ```
 
 > The pipeline cache is pre‑built; you only need `targets::tar_make()` if you

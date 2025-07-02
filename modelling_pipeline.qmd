@@ -48,7 +48,7 @@ train_counts <- tar_read(train_df) %>% count(species, pa)
 knitr::kable(train_counts, caption = "Train set composition")
 ```
 
-**Q►** Why did we choose a *spatial* fold split rather than a random 80/20
+**TASK 2.1** Why did we choose a *spatial* fold split rather than a random 80/20
 split?
 
 ---
@@ -73,7 +73,7 @@ eval_wide <- eval_tbl %>%
 knitr::kable(eval_wide, digits = 3)
 ```
 
-**Q►** For which species does variable reduction *improve* the GLM but not the
+**TASK 3.1** For which species does variable reduction *improve* the GLM but not the
 RF?  Suggest an explanation in terms of over‑fitting and information loss.
 
 ---
@@ -116,7 +116,7 @@ cal_plot +
   ggplot2::theme_minimal()
 ```
 
-**Q►** Is the default 0.5 threshold sensible?  Consider prevalence and
+**TASK 4.2** Is the default 0.5 threshold sensible?  Consider prevalence and
 management cost of false negatives.
 
 ---
@@ -136,7 +136,7 @@ prob.") +
   labs(title = paste(species_pick, "– RF probability on human footprint backdrop"))
 ```
 
-**Q►** Where does the model predict high suitability but we recorded no
+**TASK 5.1** Where does the model predict high suitability but we recorded no
 presence?  Suggest a *logistical* (not ecological) reason.
 
 ---
@@ -157,7 +157,7 @@ ggplot(compare, aes(AUC, species, fill = dataset)) +
   theme_minimal(base_size = 10)
 ```
 
-**Q►** Which species benefits most from the enhanced dataset?  
+**TASK 6.1** Which species benefits most from the enhanced dataset?  
 Which new data type (camera trap, extra absences, remote areas) do you think
 was decisive?
 
@@ -172,16 +172,15 @@ was decisive?
 * Change `mtry` in `_targets.R` for RF and rebuild just that branch with  
   `targets::tar_delete(red_model_rf); tar_make(red_model_rf)`.
 
-**Q►** Document one change you tried and its effect on AUC or the map.
+**TASK 7.1** Document one change you tried and its effect on AUC or the map.
 
 ---
 
 ## 8  Wrap‑up
 
 * Knit this notebook → HTML, confirm that
-  – all **Q►** answers are filled in,   
+  – all **TASK** answers are filled in,   
   – the comparison bar plot renders.  
-* Submit the HTML (or PDF) plus your R session info.
 
 ```{r session-info}
 sessionInfo()

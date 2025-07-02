@@ -1,6 +1,6 @@
 # Getting Started: KPZ314 SDM Practical
 
-*5‑minute checklist for Week‑10 lab*
+*5‑minute checklist for Week‑3 Prac*
 
 1. **Install Git (once)**  
    * Windows: <https://git-scm.com/download/win>  
@@ -9,11 +9,11 @@
 2. **Clone the repo**
 
    ```bash
-   git clone https://github.com/UTasEco/KPZ314-sdm-prac.git
+   git clone https://github.com/BWBrook/KPZ314-sdm.git
    ```
 
 3. **Open in RStudio**  
-   `File → Open Project… → KPZ314-sdm-prac.Rproj`
+   `File → Open Project… → KPZ314-sdm.Rproj`
 
 4. **Bootstrap the environment**
 
