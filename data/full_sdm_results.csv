@@ -1,0 +1,5 @@
+model_type,species,tp,tn,fp,fn,sens,spec,auc,f1,tss
+rf,Dasyurus maculatus,94,13,31,14,0.87,0.3,0.71,0.81,0.17
+rf,Dasyurus viverrinus,58,57,21,16,0.78,0.73,0.8,0.76,0.51
+rf,Notamacropus rufogriseus,32,28,12,36,0.47,0.7,0.64,0.57,0.17
+rf,Vombatus ursinus,129,2,25,0,1,0.07,0.76,0.91,0.07

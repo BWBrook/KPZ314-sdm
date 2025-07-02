@@ -17,7 +17,7 @@ required_pkgs <- c(
   # pipeline / reproducibility
   "targets", "import", "here", "glue",
   # tidyverse core
-  "dplyr", "tidyr", "purrr", "readr", "stringr", "ggplot2",
+  "dplyr", "tidyr", "purrr", "readr", "stringr", "ggplot2", "probably",
   # spatial + SDM
   "sf", "terra", "leaflet", "galah",
   # modelling

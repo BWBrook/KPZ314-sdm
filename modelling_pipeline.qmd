@@ -1,0 +1,188 @@
+
+---
+title: "KPZ314 SDM practical – Part 2: Modelling & Evaluation"
+format: html
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(targets); tar_config_set(script = "_targets.R")
+library(dplyr); library(ggplot2); library(tidyr); library(probably)
+
+# Build if needed
+if (!"eval_tbl" %in% tar_meta()$name) tar_make(reporter = "silent")
+
+# Read targets
+pred_rf        <- tar_read(pred_rf)
+pred_glm       <- tar_read(pred_glm)
+red_pred_rf    <- tar_read(red_pred_rf)
+red_pred_glm   <- tar_read(red_pred_glm)
+eval_tbl       <- tar_read(eval_tbl)
+
+# Full-analysis reference
+full_res <- readr::read_csv(here::here("data", "full_sdm_results.csv"))
+```
+
+## 1  Why model?
+
+> *From species points to management insight.*  
+We have a presence–absence grid for four Tasmanian mammals and we split it
+spatially into **train** (model fitting) and **test** (honest evaluation).
+Your goal: quantify and map habitat suitability then decide if the model is
+trustworthy.
+
+---
+
+## 2  Two modelling approaches
+
+| model | key idea | when useful |
+|-------|----------|-------------|
+| **GLM** | single linear predictor on the log‑odds scale | baseline, interpretable |
+| **Random Forest** | bagged decision trees, non‑linear | captures interactions & thresholds |
+
+```{r show-train-counts}
+train_counts <- tar_read(train_df) %>% count(species, pa)
+knitr::kable(train_counts, caption = "Train set composition")
+```
+
+**Q►** Why did we choose a *spatial* fold split rather than a random 80/20
+split?
+
+---
+
+## 3  All predictors vs VIF‑reduced set
+
+The pipeline fitted four models per species:
+
+* GLM (full)   
+* GLM (VIF‑reduced)  
+* RF (full)  
+* RF (VIF‑reduced)
+
+```{r vif-table}
+vif_keep <- tar_read(vif_keep)
+knitr::kable(as.data.frame(vif_keep), col.names = "Predictors retained after VIF < 5")
+```
+
+```{r metric-wide}
+eval_wide <- eval_tbl %>%
+  pivot_wider(names_from = model, values_from = c(auc, f1))
+knitr::kable(eval_wide, digits = 3)
+```
+
+**Q►** For which species does variable reduction *improve* the GLM but not the
+RF?  Suggest an explanation in terms of over‑fitting and information loss.
+
+---
+
+## 4  Threshold exploration (choose a species)
+
+```{r pick-species}
+species_pick <- "Dasyurus viverrinus"   # ← change me
+rf_pick  <- pred_rf  %>% filter(species == species_pick)
+glm_pick <- pred_glm %>% filter(species == species_pick)
+```
+
+### 4·1 ROC curve (RF)
+
+```{r roc-plot}
+library(pROC)
+roc_obj <- roc(rf_pick$pa, rf_pick$.pred)
+plot(roc_obj, print.auc = TRUE, main = paste(species_pick, "RF ROC"))
+```
+
+### 4·2 Calibration
+
+```{r calib-plot}
+# ⬇︎ tidy calibration curve with {probably}
+cal_plot <- rf_pick %>%                         # rf_pick already has .pred
+  dplyr::mutate(pa = factor(pa, levels = c(0, 1))) %>% 
+  probably::cal_plot_breaks(
+    truth    = pa,          # observed 0 / 1
+    estimate = .pred,       # predicted prob
+    n_bins   = 10           # equal-width bins
+  )
+
+cal_plot +
+  ggplot2::geom_abline(linetype = 2, colour = "grey50") +   # 1:1 reference
+  ggplot2::labs(
+    title = "Calibration curve – RF (10 equal-width bins)",
+    x = "Predicted probability",
+    y = "Observed frequency"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+**Q►** Is the default 0.5 threshold sensible?  Consider prevalence and
+management cost of false negatives.
+
+---
+
+## 5  Spatial prediction map
+
+```{r map-pred}
+grid   <- tar_read(grid_df)
+rf_map <- rf_pick
+ggplot() +
+  geom_raster(data = grid, aes(lon, lat, fill = human_footprint), alpha = 0.4) +
+  geom_point(data = rf_map, aes(lon, lat, colour = .pred), size = 0.7) +
+  scale_colour_viridis_c(name = "Predicted
+prob.") +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = paste(species_pick, "– RF probability on human footprint backdrop"))
+```
+
+**Q►** Where does the model predict high suitability but we recorded no
+presence?  Suggest a *logistical* (not ecological) reason.
+
+---
+
+## 6  Toy vs full‑study performance
+
+```{r compare-auc}
+toy_rf  <- eval_tbl %>% filter(model == "RF") %>% select(species, auc_toy = auc)
+full_rf <- full_res %>% filter(model_type == "rf") %>%
+  select(species, auc_full = auc)
+compare <- left_join(toy_rf, full_rf, by = "species") %>%
+  pivot_longer(-species, names_to = "dataset", values_to = "AUC")
+
+ggplot(compare, aes(AUC, species, fill = dataset)) +
+  geom_col(position = "dodge") +
+  scale_fill_brewer(palette = "Set1", name = "") +
+  labs(title = "Random‑Forest AUC: toy vs full study") +
+  theme_minimal(base_size = 10)
+```
+
+**Q►** Which species benefits most from the enhanced dataset?  
+Which new data type (camera trap, extra absences, remote areas) do you think
+was decisive?
+
+---
+
+## 7  Free exploration (optional)
+
+* Try modifying the *reduced* predictor set: e.g. remove `human_footprint`
+  and re‑run `tar_make(red_model_rf)` to see the impact.  
+* Use `tar_read(pred_rf)` to pull predictions into your workspace and make a
+  custom histogram of predicted probabilities.  
+* Change `mtry` in `_targets.R` for RF and rebuild just that branch with  
+  `targets::tar_delete(red_model_rf); tar_make(red_model_rf)`.
+
+**Q►** Document one change you tried and its effect on AUC or the map.
+
+---
+
+## 8  Wrap‑up
+
+* Knit this notebook → HTML, confirm that
+  – all **Q►** answers are filled in,   
+  – the comparison bar plot renders.  
+* Submit the HTML (or PDF) plus your R session info.
+
+```{r session-info}
+sessionInfo()
+```
