@@ -20,7 +20,7 @@ data/                   # species list + env grid
 ## Quick‑start (students)
 
 ```bash
-git clone https://github.com/UTasEco/KPZ314-sdm-prac.git
+git clone https://github.com/BWBrook/KPZ314-sdm.git
 cd KPZ314-sdm-prac
 ```
 Then:
