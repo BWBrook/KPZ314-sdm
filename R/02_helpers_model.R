@@ -1,14 +1,15 @@
 # R/02_helpers_model.R ----------------------------------------------------------
 # Modelling helpers: GLM baseline, RF model, evaluation, prediction.
 
-import::from("dplyr", select, mutate, bind_cols, group_by, summarise)
-import::from("ranger", ranger)
-import::from("stats",  glm, predict, as.formula)
-import::from("pROC",   roc, auc)
-import::from("yardstick", f_meas_vec, roc_auc_vec)
-import::from("readr",  write_csv)
-import::from("purrr",  map_dfr)
-import::from("usdm", vifstep)
+import::here(select, mutate, bind_cols, group_by, summarise, starts_with, 
+             .from = "dplyr")
+import::here(ranger, .from = "ranger")
+import::here(roc, auc, .from = "pROC")
+import::here(f_meas_vec, roc_auc_vec, .from = "yardstick")
+import::here(write_csv, .from = "readr")
+import::here(map_dfr, .from = "purrr")
+import::here(vifstep, .from = "usdm")
+import::here(tar_read_raw, tar_meta, .from = "targets")
 
 # ── evaluation helpers ─────────────────────────────────────────────────────────
 
@@ -105,17 +106,19 @@ fit_glm_wrapper <- function(train_df,
   fit
 }
 
-#' Fit random-forest SDM (ranger)
+#' Fit random‑forest SDM (ranger, binary response)
 #'
-#' Wraps \code{ranger()} with sensible defaults and stores the species
-#' name as an attribute.
+#' Ensures the response is a factor with levels **c("0","1")** so that
+#' the prediction matrix returned by `predict()` always carries column
+#' names `"0"` and `"1"`.  That makes it unambiguous which column is
+#' the positive class, and downstream helpers can rely on the names.
 #'
-#' @inheritParams clean_predictors
-#' @param train_df Training data for a single species.
-#' @param mtry     Number of variables sampled at each split.
-#'   Defaults to \eqn{\sqrt{p}} if \code{NULL}.
-#' @param trees    Number of trees (default 1000).
-#' @return A fitted \code{ranger} object with \code{attr(., "species")}.
+#' @inheritParams   clean_predictors
+#' @param train_df  Training data for **one** species.
+#' @param mtry      Number of variables sampled at each split.
+#'                  Defaults to `floor(sqrt(p))` if `NULL`.
+#' @param trees     Number of trees (default 1000).
+#' @return          A fitted `ranger` object with `attr(., "species")`.
 fit_rf_wrapper <- function(train_df,
                            pred_vars   = NULL,
                            mtry        = NULL,
@@ -125,8 +128,12 @@ fit_rf_wrapper <- function(train_df,
   sp <- unique(train_df$species)
 
   df  <- clean_predictors(train_df, pred_vars, drop_coords)
+
+  ## --- make sure response is a *factor* with ordered levels ----------
+  df$pa <- factor(df$pa, levels = c(0, 1))
+
   p   <- ncol(df) - 1L
-  if (is.null(mtry)) mtry <- max(1, floor(sqrt(p)))
+  if (is.null(mtry)) mtry <- max(1L, floor(sqrt(p)))
 
   fit <- ranger(
     pa ~ .,
@@ -136,7 +143,8 @@ fit_rf_wrapper <- function(train_df,
     probability = TRUE,
     importance  = "impurity"
   )
-  attr(fit, "species") <- sp           # <─ add species tag
+
+  attr(fit, "species") <- sp
   fit
 }
 
@@ -155,46 +163,80 @@ predict_glm_df <- function(model, newdata) {
   newdata
 }
 
-#' Predict with random-forest SDM
+#' Predict with random‑forest SDM (positive‑class probability)
 #'
-#' Generates probability predictions for new data (positive class)
-#' after tidying columns.
+#' Works even when older ranger builds omit column names by falling back
+#' to the class label stored in the fitted model (`model$forest$levels`).
 #'
-#' @param model   Fitted \code{ranger} object.
-#' @param newdata Data frame to predict on.
-#' @return \code{newdata} with added \code{.pred} column.
+#' @param model   Fitted `ranger` object from `fit_rf_wrapper()`.
+#' @param newdata Data frame to predict on (will be tidied by `clean_xy()`).
+#' @return        `newdata` with an added `.pred` column.
 predict_rf_df <- function(model, newdata) {
   newdata <- clean_xy(newdata)
 
   prob_mat <- predict(model, newdata, type = "response")$predictions
 
-  # grab the positive-class column safely
+  # --- identify the "positive" (presence) column ----------------------
   if (!is.null(colnames(prob_mat))) {
-    pos_col <- grep("^1$|^TRUE$|present|yes", colnames(prob_mat), value = TRUE)[1]
-    newdata$.pred <- prob_mat[, pos_col]
+    pos_idx <- which(colnames(prob_mat) %in% c("1", "TRUE", "present", "yes"))
+  } else if (!is.null(model$forest$levels)) {
+    # ranger stores class order here even if column names are dropped
+    pos_idx <- which(model$forest$levels == "1")
   } else {
-    newdata$.pred <- prob_mat[, 2]          # second column = class 1
+    stop("Cannot determine positive class column in ranger predictions.")
   }
 
+  if (length(pos_idx) != 1) {
+    stop("Unable to locate a unique positive‑class column in prediction matrix.")
+  }
+
+  newdata$.pred <- prob_mat[, pos_idx]
   newdata
 }
 
-#' Evaluate per-species SDM predictions
+#' Evaluate SDM predictions (wide set of metrics)
 #'
-#' @param df  A data frame with columns `species`, `model`, `pa`, `.pred`.
-#' @return    A tibble with one row per (species, model) and chosen metrics.
+#' @param df        Data-frame with cols `species`, `model`, `pa` (0/1) and
+#'                  `.pred` (probability for presence).
+#' @param threshold Probability cut-off to create a hard class label. Default 0.5.
+#' @return Tibble: one row per (species × model) and many yardstick metrics.
 #' @export
 evaluate_sdm <- function(df, threshold = 0.5) {
-  df %>%
+
+  df %>% 
     mutate(
-      pa    = factor(pa, levels = c(0, 1)),                         # truth
-      pred_bin = factor(ifelse(.pred > threshold, 1, 0),            # estimate
+      pa       = factor(pa, levels = c(0, 1)),             # truth
+      pred_bin = factor(ifelse(.pred > threshold, 1, 0),   # hard prediction
                         levels = c(0, 1))
-    ) %>%
-    group_by(model, species) %>%
+    ) %>% 
+    group_by(model, species) %>% 
     summarise(
-      auc = yardstick::roc_auc_vec(pa, .pred),
-      f1  = yardstick::f_meas_vec(pa, pred_bin, event_level = "second"),
+      # probability-threshold-free metrics ----------------------------
+      #auc = yardstick::roc_auc_vec(pa, .pred),
+      #pr_auc  = yardstick::pr_auc_vec (pa, .pred),
+      #
+      # threshold-based metrics ---------------------------------------
+      acc      = yardstick::accuracy_vec     (pa, pred_bin),
+      #bal_accuracy  = yardstick::bal_accuracy_vec (pa, pred_bin),
+      sens   = yardstick::sens_vec         (pa, pred_bin),
+      spec   = yardstick::spec_vec         (pa, pred_bin),
+      #precision     = yardstick::precision_vec    (pa, pred_bin),
+      #mcc           = yardstick::mcc_vec(pa, pred_bin),
+      #kap           = yardstick::kap_vec          (pa, pred_bin),
+      f1            = yardstick::f_meas_vec       (pa, pred_bin,
+                                                   event_level = "second"),
+      tss       = yardstick::j_index_vec      (pa, pred_bin),
       .groups = "drop"
     )
+}
+
+# --- helper: load reduced-predictor RF fits into a named list -----------------
+load_red_rf_fits <- function() {
+  # 1. find the branch object names
+  branch_ids <- tar_meta(starts_with("red_model_rf_"), name)$name
+  
+  # 2. read each branch raw (returns the ranger fit) and name by species
+  fits <- lapply(branch_ids, tar_read_raw)
+  names(fits) <- vapply(fits, attr, FUN.VALUE = character(1), which = "species")
+  fits
 }

@@ -42,13 +42,16 @@ pa_df %>%
   knitr::kable()
 ```
 
-> **TASK 1.1** What class imbalance (pa_1 vs pa_0) would you flag as *severe?*  
-> Give a numeric rule-of-thumb and justify it.
+> **TASK 1.1** Why do you think there are far fewer absences than presences?  
+> Hint: we chose only 1 km grid cells that were occupied by at least 2 *other* species.
+
+> **TASK 1.2** What class imbalance (pa_1 vs pa_0) would you flag as *severe?*  
+> Give a numeric rule-of-thumb and justify it. Think about the species ecology.
 
 ## 2  Map presences & pseudo-absences
 
 ```{r}
-pres_palette <- c("1" = "#D7191C",  "0" = "#2C7BB6")
+pres_palette <- c("0" = "#D7191C",  "1" = "#2C7BB6")
 
 ggplot(pa_df, aes(lon, lat, colour = factor(pa))) +
   geom_point(size = 0.8, alpha = 0.6) +
@@ -59,19 +62,23 @@ ggplot(pa_df, aes(lon, lat, colour = factor(pa))) +
                                  "1" = "presence")) +
   theme_minimal() +
   facet_wrap(~ species, ncol = 2) +
-  labs(title = "ALA records snapped to 0.05° grid")
+  labs(title = "ALA records snapped to 0.01° grid")
 ```
 
-> **TASK 2.1** Visually, which species appears most clustered?  
-> Explain what sampling process might create that pattern.
+> **TASK 2.1** Visually, which species appears most clearly separated?  
+> Explain what sampling biases might have led to this observed pattern.
 
-## 3  Overlay an environmental predictor
+## 3  Overlay an environmental predictor layer on Tasmania
 
 ```{r}
 library(scales)
 
-this_pred <- "annprecip"
+this_pred <- "human_footprint"
 
+colnames(tar_read(grid_df)[, 3:17])
+```
+
+```{r}
 ggplot(grid_df, aes(lon, lat, fill = .data[[this_pred]])) +
   geom_tile() +
   coord_equal() +
@@ -79,22 +86,43 @@ ggplot(grid_df, aes(lon, lat, fill = .data[[this_pred]])) +
   scale_fill_viridis_c(option = "B", name = this_pred)
 ```
 
-> **TASK 3.1** Pick a different predictor and regenerate the map.  
+> **TASK 3.1** This was human footprint, with the highest intensity around urban areas. 
+> Pick a different predictor from the list above (e.g., annprecip) and regenerate the map.  
 > Which environmental gradient shows the clearest north–south trend?
 
 ## 4  Building spatial CV folds
 
 ```{r}
-ggplot(fold_lookup, aes(lon, lat, colour = factor(fold))) +
-  geom_point(size = 1) +
+folds <- tar_read(folds)
+
+# 1. Plot all points, coloured by fold
+p <- ggplot(folds, aes(lon, lat, colour = factor(fold))) +
+  geom_point(size = 1.2, alpha = 0.7) +
+  scale_colour_viridis_d(name = "Fold", option = "turbo") +
   coord_equal() +
-  theme_minimal() +
-  scale_colour_viridis_d(name = "Fold") +
-  labs(title = "30 spatially clustered folds")
+  theme_minimal()
+
+# 2. Compute centroids of each fold cluster
+centroids <- folds %>%
+  group_by(fold) %>%
+  summarise(lon = mean(lon), lat = mean(lat))
+
+# 3. Overlay fold numbers in red at centroids
+p + 
+  geom_text(
+    data = centroids,
+    aes(lon, lat, label = fold),
+    colour = "red", fontface = "bold", size = 3.5, show.legend = FALSE
+  ) +
+  labs(title = "Spatial CV folds (numbered by centroid)",
+       x = "Longitude", y = "Latitude")
 ```
 
 > **TASK 4.1** Why might random (non-spatial) CV over-estimate model accuracy  
 > when evaluating SDMs?
+
+> **TASK 4.2** We chose folds 5, 11, 19 and 23 for the held-out test set.  
+> Why do you think these areas were selected? What is the trade-off at play here?
 
 ## 5  Train/test split check
 
@@ -107,8 +135,8 @@ pa_cv_df %>%
   knitr::kable()
 ```
 
-> **TASK 5.1** Each species’ test set has ≥ 179 presences.  
-> Explain why that matters for metrics such as ROC-AUC.
+> **TASK 5.1** Each species’ test set has ≥ ~100 presences. But some have few absences. 
+> Explain why that might matters for how well we can train a good discriminating SDM.
 
 ## 6  Reflect
 

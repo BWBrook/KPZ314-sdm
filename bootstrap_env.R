@@ -3,7 +3,7 @@
 # Run once after cloning the repo.
 
 if (!requireNamespace("renv", quietly = TRUE)) {
-  install.packages("renv", repos = "https://cloud.r-project.org")
+  install.packages("renv", "import", repos = "https://cloud.r-project.org")
 }
 
 import::from("renv", init, install, snapshot, status)
@@ -15,11 +15,11 @@ init(bare = TRUE) |> invisible()
 # ── 2  declare package set ───────────────────────────────────────────────────────
 required_pkgs <- c(
   # pipeline / reproducibility
-  "targets", "import", "here", "glue",
+  "targets", "import", "here", "glue", "readr",
   # tidyverse core
   "dplyr", "tidyr", "purrr", "readr", "stringr", "ggplot2", "probably",
   # spatial + SDM
-  "sf", "terra", "leaflet", "galah",
+  "sf", "terra", "leaflet", "galah", "ranger",
   # modelling
   "tidymodels", "ranger", "pROC", "usdm", "yardstick",
   # misc

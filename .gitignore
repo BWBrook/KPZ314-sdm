@@ -69,3 +69,8 @@ _targets/**             # but ignore any new/changed files
 .DS_Store
 .vscode/
 .idea/
+*.html
+*.png
+*.js
+*.css
+*.woff

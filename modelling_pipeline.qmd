@@ -11,16 +11,21 @@ execute:
 ```{r setup}
 library(targets); tar_config_set(script = "_targets.R")
 library(dplyr); library(ggplot2); library(tidyr); library(probably)
+import::here(clean_xy, .from = "R/01_helpers_data.R")
+import::here(load_red_rf_fits, predict_rf_df, .from = "R/02_helpers_model.R")
 
 # Build if needed
 if (!"eval_tbl" %in% tar_meta()$name) tar_make(reporter = "silent")
 
 # Read targets
+grid_df        <- tar_read(grid_df)
+pa_df          <- tar_read(pa_df)
 pred_rf        <- tar_read(pred_rf)
 pred_glm       <- tar_read(pred_glm)
 red_pred_rf    <- tar_read(red_pred_rf)
 red_pred_glm   <- tar_read(red_pred_glm)
 eval_tbl       <- tar_read(eval_tbl)
+red_rf_fits <- load_red_rf_fits()
 
 # Full-analysis reference
 full_res <- readr::read_csv(here::here("data", "full_sdm_results.csv"))
@@ -69,9 +74,38 @@ knitr::kable(as.data.frame(vif_keep), col.names = "Predictors retained after VIF
 
 ```{r metric-wide}
 eval_wide <- eval_tbl %>%
-  pivot_wider(names_from = model, values_from = c(auc, f1))
+  pivot_wider(names_from = model, values_from = c(acc, sens, spec, f1, tss))
 knitr::kable(eval_wide, digits = 3)
+
+eval_tbl
 ```
+
+**Accuracy** (acc) is the simplest score: the proportion of all predictions that were correct.  
+It is intuitive, but when classes are imbalanced it can be misleading because a model can  
+look “good” just by guessing the majority class. 
+
+**Sensitivity** (sens, a.k.a. Recall or True-Positive Rate) is the share of actual presences  
+that the model captures — how well it avoids false-negatives. High sensitivity is vital when  
+missing a presence is costly (e.g. overlooking critical habitat). 
+
+**Specificity** (spec, True-Negative Rate) is the mirror image: the share of true absences  
+correctly predicted, reflecting resistance to false-positives. It matters when over-predicting  
+presence would misdirect management effort. 
+
+**F1-score** is the harmonic mean of Precision (positive-predictive value) and Sensitivity.  
+Because it penalises uneven trade-offs between false-positives and false-negatives, F1 is  
+useful when the positive class is rare or when both kinds of error carry weight. 
+
+**TSS** combines Sensitivity + Specificity − 1, yielding a single number from –1 (worst) to +1  
+(perfect). It is prevalence-independent and highlights overall discrimination at a chosen threshold.  
+
+Taken together these metrics give a rounded view: Accuracy shows overall hit-rate, Sensitivity &  
+Specificity expose which side of the confusion matrix drives performance, and the integrated scores  
+F1 (balance between false-negatives and precision) and TSS (balance between both error types  
+regardless of prevalence) distil that information into threshold-specific quality checks. Using the  
+standard 0.5 cut-off here is convenient for teaching, but in practice the threshold can be tuned to  
+maximise F1, TSS or another criterion aligned with ecological objectives. 
+
 
 **TASK 3.1** For which species does variable reduction *improve* the GLM but not the
 RF?  Suggest an explanation in terms of over‑fitting and information loss.
@@ -88,78 +122,115 @@ glm_pick <- pred_glm %>% filter(species == species_pick)
 
 ### 4·1 ROC curve (RF)
 
+**AUC** (Receiver Operating Characteristic – Area Under the Curve) measures a model’s ability to  
+discriminate between classes, independent of any specific threshold. The ROC curve plots the true   
+positive rate (sensitivity) against the false positive rate (1 – specificity) as the classification   
+threshold varies from 0 to 1. The AUC summarises this curve into a single value between 0 and 1. 
+
 ```{r roc-plot}
 library(pROC)
 roc_obj <- roc(rf_pick$pa, rf_pick$.pred)
 plot(roc_obj, print.auc = TRUE, main = paste(species_pick, "RF ROC"))
 ```
 
-### 4·2 Calibration
+### 4·2 Calibration
+
+A calibration curve compares predicted probabilities with observed outcomes to assess how well a model’s  
+confidence aligns with reality. Each point represents a bin of cases with similar predicted values; the  
+x-axis shows the model’s average predicted probability, and the y-axis shows the actual frequency of  
+presences in that bin. A perfectly calibrated model would fall on the 1:1 line. Points below the line  
+indicate over-confidence (the model predicts too high), while points above indicate under-confidence.  
+Calibration is important when probabilities are used directly for decision-making, rather than just  
+for ranking cases
 
 ```{r calib-plot}
 # ⬇︎ tidy calibration curve with {probably}
 cal_plot <- rf_pick %>%                         # rf_pick already has .pred
-  dplyr::mutate(pa = factor(pa, levels = c(0, 1))) %>% 
+  dplyr::mutate(pa = factor(pa, levels = c(1, 0))) %>% 
   probably::cal_plot_breaks(
-    truth    = pa,          # observed 0 / 1
+    truth    = pa,          # observed 1 / 0
     estimate = .pred,       # predicted prob
-    n_bins   = 10           # equal-width bins
+    n_bins   = 20           # equal-width bins
   )
 
 cal_plot +
   ggplot2::geom_abline(linetype = 2, colour = "grey50") +   # 1:1 reference
   ggplot2::labs(
-    title = "Calibration curve – RF (10 equal-width bins)",
+    title = "Calibration curve – RF (20 equal-width bins)",
     x = "Predicted probability",
     y = "Observed frequency"
   ) +
   ggplot2::theme_minimal()
 ```
 
-**TASK 4.2** Is the default 0.5 threshold sensible?  Consider prevalence and
-management cost of false negatives.
+**TASK 4.2** Why do you think the model is under-confident at the higher predicted probabilities?
 
 ---
 
 ## 5  Spatial prediction map
 
 ```{r map-pred}
-grid   <- tar_read(grid_df)
-rf_map <- rf_pick
+sp <- "Dasyurus viverrinus"              # <- students can change this
+
+rf_model_sp <- red_rf_fits[[sp]]         # retrieve the fit by name
+
+# 1. full-grid prediction ------------------------------------------------------
+grid_pred <- grid_df %>% 
+  predict_rf_df(rf_model_sp, .)          # adds .pred column
+
+summary(grid_pred$.pred)
+ggplot(grid_pred, aes(.pred)) + geom_histogram(bins = 30)
+
+# 2. presence / absence points -------------------------------------------------
+pts <- pa_df %>% 
+  filter(species == sp) %>% 
+  mutate(pa_col = ifelse(pa == 1, "presence", "absence"))
+
+# 3. plot ----------------------------------------------------------------------
 ggplot() +
-  geom_raster(data = grid, aes(lon, lat, fill = human_footprint), alpha = 0.4) +
-  geom_point(data = rf_map, aes(lon, lat, colour = .pred), size = 0.7) +
-  scale_colour_viridis_c(name = "Predicted
-prob.") +
+  geom_tile(data = grid_pred,
+            aes(lon, lat, fill = .pred)) +
+  scale_fill_viridis_c(
+    option    = "viridis",   # default palette
+    direction =  1,          # low→dark-purple, high→yellow
+    name      = "Predicted\nprob."
+  ) +
+  geom_point(data = pts,
+             aes(lon, lat, colour = pa_col),
+             size = 0.8, alpha = 0.8) +
+  scale_colour_manual(values = c(presence = "black", absence = "red"),
+                      name = NULL) +
   coord_equal() +
-  theme_minimal() +
-  labs(title = paste(species_pick, "– RF probability on human footprint backdrop"))
+  labs(
+    title = glue::glue("{sp} – RF suitability"),
+    x = "Longitude", y = "Latitude"
+  ) +
+  theme_minimal()
 ```
 
 **TASK 5.1** Where does the model predict high suitability but we recorded no
-presence?  Suggest a *logistical* (not ecological) reason.
+presence? The reasons might be ecological, historical or logistical!
 
 ---
 
-## 6  Toy vs full‑study performance
+## ALA vs full‑study performance (TSS)
 
-```{r compare-auc}
-toy_rf  <- eval_tbl %>% filter(model == "RF") %>% select(species, auc_toy = auc)
+```{r compare-tss}
+ala_rf  <- eval_tbl %>% filter(model == "RF") %>% select(species, tss_ala = tss)
 full_rf <- full_res %>% filter(model_type == "rf") %>%
-  select(species, auc_full = auc)
-compare <- left_join(toy_rf, full_rf, by = "species") %>%
-  pivot_longer(-species, names_to = "dataset", values_to = "AUC")
+  select(species, tss_full = tss)
+compare <- left_join(ala_rf, full_rf, by = "species") %>%
+  pivot_longer(-species, names_to = "dataset", values_to = "TSS")
 
-ggplot(compare, aes(AUC, species, fill = dataset)) +
+ggplot(compare, aes(TSS, species, fill = dataset)) +
   geom_col(position = "dodge") +
   scale_fill_brewer(palette = "Set1", name = "") +
-  labs(title = "Random‑Forest AUC: toy vs full study") +
+  labs(title = "Random Forest TSS: ALA vs full study") +
   theme_minimal(base_size = 10)
 ```
 
 **TASK 6.1** Which species benefits most from the enhanced dataset?  
-Which new data type (camera trap, extra absences, remote areas) do you think
-was decisive?
+Which new data type (camera trap, extra absences, remote areas) was most helpful?
 
 ---
 
@@ -169,18 +240,16 @@ was decisive?
   and re‑run `tar_make(red_model_rf)` to see the impact.  
 * Use `tar_read(pred_rf)` to pull predictions into your workspace and make a
   custom histogram of predicted probabilities.  
-* Change `mtry` in `_targets.R` for RF and rebuild just that branch with  
-  `targets::tar_delete(red_model_rf); tar_make(red_model_rf)`.
+* Other things that take your fancy!
 
-**TASK 7.1** Document one change you tried and its effect on AUC or the map.
+**TASK 7.1** Document one change you tried and its effect on TSS or the map.
 
 ---
 
 ## 8  Wrap‑up
 
-* Knit this notebook → HTML, confirm that
-  – all **TASK** answers are filled in,   
-  – the comparison bar plot renders.  
+* Knit this notebook → HTML, confirm that all **TASK** answers have been attempted  
+
 
 ```{r session-info}
 sessionInfo()

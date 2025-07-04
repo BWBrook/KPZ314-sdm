@@ -6,7 +6,7 @@ import::here(read_species_list, read_grid, build_pa_dataset, load_or_make_folds,
 import::here(fit_glm_wrapper, fit_rf_wrapper, predict_glm_df, predict_rf_df, 
              select_vif, evaluate_sdm, .from = "R/02_helpers_model.R")
 
-tar_option_set(packages = c("dplyr", "sf", "purrr", "ranger", "usdm"))
+tar_option_set(packages = c("dplyr"))
 
 list(
   # ── raw inputs ────────────────────────────────────────────────────────────
@@ -14,11 +14,11 @@ list(
   tar_target(grid_df,     read_grid(here("data", "tas_sdm_map.csv"))),
 
   # ── build PA data ────────────────────────────────────────────────────────
-  tar_target(pa_df,       build_pa_dataset(species_tbl, grid_df, min_species = 1)),
+  tar_target(pa_df,       build_pa_dataset(species_tbl, grid_df, min_species = 2)),
 
   # ── assign folds & create splits ──────────────────────────────────────────
   tar_target(folds, load_or_make_folds(pa_df, here("data", "spatial_folds.rds"))),
-  tar_target(pa_cv_df, label_folds(pa_df, folds, test_ids = c(5, 13, 19, 23, 26))),
+  tar_target(pa_cv_df, label_folds(pa_df, folds, test_ids = c(5, 11, 19, 23))),
 
   tar_target(
     train_df,

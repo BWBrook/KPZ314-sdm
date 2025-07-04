@@ -3,17 +3,17 @@
 # Each function is atomic and explicitly imports what it needs.
 
 # ── imports ────────────────────────────────────────────────────────────────────
-import::from("dplyr",         tibble, select, mutate, rename, filter, bind_rows,
-                              group_by, ungroup, summarise, distinct, anti_join,
-                              left_join)
-import::from("readr",         read_csv)
-import::from("sf",            st_as_sf, st_nearest_feature, st_coordinates,
-                              st_set_geometry, st_drop_geometry, st_intersects,
-                              st_geometry, st_crs)
-import::from("spatialsample", spatial_clustering_cv, assessment)
-import::from("purrr",         map_dfr)
-import::from("galah",         galah_call, galah_identify, galah_filter, 
-                              galah_config, galah_select, atlas_occurrences)
+import::here(tibble, select, mutate, rename, filter, bind_rows,
+             group_by, ungroup, summarise, distinct, anti_join,
+             left_join, .from = "dplyr")
+import::here(read_csv, .from = "readr")
+import::here(st_as_sf, st_nearest_feature, st_coordinates,
+             st_set_geometry, st_drop_geometry, st_intersects,
+             st_geometry, st_crs, .from = "sf")
+import::here(spatial_clustering_cv, assessment, .from = "spatialsample")
+import::here(map_dfr, map, map2, .from = "purrr")
+import::here(galah_call, galah_identify, galah_filter, 
+             galah_config, galah_select, atlas_occurrences, .from = "galah")
 
 # ── small utilities ────────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ read_grid <- function(path) {
 }
 
 # Pull ALA points for one species, minimally filtered
-get_ala_occurrences <- function(scientific_name, after_year = 1975) {
+get_ala_occurrences <- function(scientific_name, after_year = 1900) {
   galah_config(atlas="ALA", email="barry.brook@utas.edu.au", 
                caching=TRUE, verbose=TRUE)
 
